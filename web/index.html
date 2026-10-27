@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARFA AAPA | لوحة المدير التجريبية</title>
+<style>
+body { font-family: system-ui, sans-serif; background: #f4f1ea; color: #1f2937; margin: 0; }
+header { background: #111827; color: white; padding: 24px; }
+header h1 { margin: 0 0 8px; font-size: 26px; }
+header p { margin: 4px 0; color: #d1d5db; }
+main { max-width: 900px; margin: 0 auto; padding: 20px; }
+.notice { background: #fef3c7; border: 1px solid #f59e0b; padding: 12px 16px; border-radius: 10px; margin-bottom: 20px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.card { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.card h3 { margin: 0 0 8px; font-size: 15px; color: #4b5563; }
+.card .value { font-size: 26px; font-weight: 700; }
+.card .meta { font-size: 13px; color: #6b7280; margin-top: 6px; }
+form { display: flex; gap: 8px; margin-bottom: 12px; }
+input { flex: 1; padding: 12px; font-size: 16px; border: 1px solid #d1d5db; border-radius: 10px; }
+button { padding: 12px 20px; font-size: 16px; background: #111827; color: white; border: 0; border-radius: 10px; cursor: pointer; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.chip { background: white; border: 1px solid #d1d5db; border-radius: 999px; padding: 7px 12px; cursor: pointer; font-size: 14px; }
+.badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 13px; margin-bottom: 10px; }
+.ok { background: #dcfce7; color: #166534; }
+.no { background: #fee2e2; color: #991b1b; }
+.answer { white-space: pre-wrap; line-height: 1.8; }
+.small { font-size: 13px; color: #6b7280; margin-top: 10px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<header>
+<h1>ARFA AAPA</h1>
+<p>لوحة المدير التجريبية: اسأل بالعربي، وجاوبك ييجي من الداتا، موثق، وفوري.</p>
+<p>القاعدة: ميعرفش، أحسن من إنه يجاوب غلط.</p>
+</header>
+<main>
+<div class="notice">نسخة تجريبية فقط. الداتا هنا مصنعة وخارجية، وليست داتا حقيقية من Vo Technology. الواجهة للقراءة فقط، وتعمل على جهازك المحلي فقط.</div>
+
+<section class="kpis" id="kpis"></section>
+
+<form id="askForm">
+<input id="question" type="text" placeholder="مثال: ايه اجمالي الايراد اخر 30 يوم؟" autocomplete="off">
+<button type="submit">اسأل</button>
+</form>
+
+<div class="chips" id="chips"></div>
+
+<section class="card" id="result" style="display:none">
+<span class="badge" id="badge"></span>
+<div class="answer" id="answerText"></div>
+<div class="small" id="answerMeta"></div>
+</section>
+</main>
+
+<script>
+async function loadKpis() {
+  const res = await fetch('/api/kpis');
+  const items = await res.json();
+  document.getElementById('kpis').innerHTML = items.map(item => `
+    <div class="card">
+      <h3>${item.metric_name}</h3>
+      <div class="value">${item.value} ${item.unit}</div>
+      <div class="meta">${item.period_label}</div>
+    </div>
+  `).join('');
+}
+async function loadQuestions() {
+  const res = await fetch('/api/questions');
+  const items = await res.json();
+  document.getElementById('chips').innerHTML = items.map(q => `<button type="button" class="chip">${q}</button>`).join('');
+  document.querySelectorAll('.chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('question').value = btn.textContent;
+      document.getElementById('askForm').requestSubmit();
+    });
+  });
+}
+async function ask(question) {
+  const res = await fetch('/api/ask', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({question})
+  });
+  const data = await res.json();
+  const result = document.getElementById('result');
+  const badge = document.getElementById('badge');
+  result.style.display = 'block';
+  badge.textContent = data.confirmed ? 'مؤكد من الداتا' : 'امتناع: مش عارف';
+  badge.className = 'badge ' + (data.confirmed ? 'ok' : 'no');
+  document.getElementById('answerText').textContent = data.text;
+  document.getElementById('answerMeta').textContent = data.confirmed
+    ? `المقياس: ${data.metric_name} | الفترة: ${data.period_label} | المصدر: ${data.source_tables.join(', ')}`
+    : `السبب: ${data.missing}`;
+}
+document.getElementById('askForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = document.getElementById('question').value.trim();
+  if (q) await ask(q);
+});
+loadKpis();
+loadQuestions();
+</script>
+</body>
+</html>
