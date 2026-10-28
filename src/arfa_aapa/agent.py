@@ -57,7 +57,7 @@ def _period(normalized: str, reference: date) -> tuple[str, str, str]:
         last_month_end = first_this_month - timedelta(days=1)
         last_month_start = last_month_end.replace(day=1)
         return "الشهر الماضي", last_month_start.isoformat(), last_month_end.isoformat()
-    if "كل الفتره" in normalized or "من اول السنه" in normalized or "كل الفترة" in normalized:
+    if "فتره" in normalized or "من اول السنه" in normalized:
         return "كل فترة الداتا التجريبية", "2026-01-01", reference.isoformat()
     return "آخر 30 يوم", (reference - timedelta(days=29)).isoformat(), reference.isoformat()
 
@@ -86,14 +86,14 @@ def _route(normalized: str) -> str | None:
         return "service_hours_efficiency"
     if "افضل فرع" in normalized or "أفضل فرع" in normalized:
         return "best_branch"
-    if "اجمالي" in normalized or "إجمالي" in normalized or "كل الايراد" in normalized:
-        return "total_revenue"
     if "مبيعات السيارات" in normalized or "بيع السيارات" in normalized:
         return "sales_revenue"
     if "صيانه" in normalized or "خدمه" in normalized:
         return "service_revenue"
     if "قطع الغيار" in normalized or "قطع غيار" in normalized:
         return "parts_revenue"
+    if "اجمالي" in normalized or "إجمالي" in normalized or "كل الايراد" in normalized:
+        return "total_revenue"
     return None
 
 
