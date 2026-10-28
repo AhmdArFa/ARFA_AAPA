@@ -58,3 +58,37 @@ class TestWeb(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestWebUnified(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = create_server(0)
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+    def _post(self, payload):
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/ask",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request) as response:
+            return json.loads(response.read().decode("utf-8"))
+    def _get(self, path):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}") as response:
+            return json.loads(response.read().decode("utf-8"))
+    def test_web_profit(self):
+        data = self._post({"question": "ما هي أرباح الشركة في كل فترة الداتا التجريبية؟"})
+        self.assertTrue(data["confirmed"])
+        self.assertEqual(data["metric_key"], "company_profit")
+    def test_web_warehouse(self):
+        data = self._post({"question": "ما هو مخزون البطارية في المخازن؟"})
+        self.assertTrue(data["confirmed"])
+    def test_web_questions_include_unified(self):
+        questions = self._get("/api/questions")
+        self.assertTrue(any("أرباح" in q for q in questions))

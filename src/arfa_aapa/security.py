@@ -1,61 +1,21 @@
-"""Read-only query validation.
+"""Read-only query validation, core entry point.
 
-The rule is simple and strict: validation runs on the whole statement,
-not only on the SELECT list. A forbidden column in WHERE, JOIN, ORDER BY
-or GROUP BY is rejected exactly like one in SELECT.
+Canonical implementation is src/arfa_aapa/hardened.py. This module is a
+thin, backward-compatible wrapper around it, so the old import path
+``from arfa_aapa.security import validate_sql`` keeps working, but with
+the hardened rules: column and function allowlists, whole-statement
+validation, case-insensitive forbidden words, no SELECT *, no UNION,
+no subqueries, no comments, and bound parameters only.
+
+The internal reference_date query in data/database.py uses UNION ALL,
+but it does NOT go through validate_sql, so it is unaffected.
 """
 
-import re
+from .hardened import ALLOWED_COLUMNS, FORBIDDEN_WORDS, validate_hardened
 
-ALLOWED_TABLES = {
-    "branches",
-    "sales",
-    "service_job_cards",
-    "parts_sales",
-    "parts_inventory",
-    "surveys",
-}
-
-FORBIDDEN_WORDS = {
-    "insert",
-    "update",
-    "delete",
-    "drop",
-    "alter",
-    "create",
-    "truncate",
-    "replace",
-    "attach",
-    "detach",
-    "pragma",
-    "vacuum",
-    # Sensitive columns that must never appear anywhere in a query.
-    "password",
-    "salary",
-    "phone",
-    "customer_name",
-    "national_id",
-}
-
-_TABLE_RE = re.compile(r"\b(?:from|join)\s+([a-z_][a-z0-9_]*)", re.IGNORECASE)
-_WORD_RE = re.compile(r"[a-z_][a-z0-9_]*")
+ALLOWED_TABLES = set(ALLOWED_COLUMNS.keys())
 
 
 def validate_sql(sql: str) -> None:
     """Raise ValueError if the SQL is not a single safe SELECT."""
-    text = sql.strip()
-    if not text.lower().startswith("select"):
-        raise ValueError("Only SELECT statements are allowed.")
-    body = text[:-1].strip() if text.endswith(";") else text
-    if ";" in body:
-        raise ValueError("Only one statement is allowed.")
-    words = set(word.lower() for word in _WORD_RE.findall(body))
-    forbidden = words & FORBIDDEN_WORDS
-    if forbidden:
-        raise ValueError(f"Forbidden words in query: {sorted(forbidden)}")
-    tables = _TABLE_RE.findall(body)
-    if not tables:
-        raise ValueError("Query must reference at least one allowed table.")
-    unknown = [table for table in tables if table.lower() not in ALLOWED_TABLES]
-    if unknown:
-        raise ValueError(f"Unknown or disallowed tables: {unknown}")
+    validate_hardened(sql, audit=True)  # audit=True: rejected templates go to rejected.log, gitignored

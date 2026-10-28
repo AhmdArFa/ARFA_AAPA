@@ -99,7 +99,7 @@ class UnifiedAgent:
             core = core_ask(question, self.db_path if self.db_path.exists() else None)
             if core.confirmed:
                 return UnifiedAnswer(question, core.metric_key, None, True, core.text, core.value,
-                                     {"definition": core.definition, "source_tables": core.source_tables, "period": core.period_label})
+                                     {"definition": core.definition, "source_tables": core.source_tables, "period": core.period_label, "metric_name": core.metric_name})
         except Exception:
             pass
         # Company domains fallback

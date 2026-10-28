@@ -36,9 +36,9 @@ Scale is a later decision, not a current feature.
 ## 4. Current status
 
 - Repository: standalone, built from scratch. It has no code dependency on the older AI-Personal-Assistant-Agent platform repository. Design lessons from that platform were reused as ideas only.
-- Unified agent v2, pushed 2026-10-28 after all tests green: unified agent in src/arfa_aapa/unified_agent.py, tools registry in tools.py, skills in skills/, hardened validator in src/arfa_aapa/hardened.py and experiments/security-hardened/, company domains and evidence engines in src/arfa_aapa/domains.py and evidence.py, security and maintenance guide in docs/SECURITY_AND_MAINTENANCE.md. Earlier pushed version was GitHub main, commit 5fc45a3, 25 files.
+- Unified agent v3, 2026-10-28, after all tests green: unified agent in src/arfa_aapa/unified_agent.py, tools registry in tools.py, skills in skills/, hardened validator as the core validator in src/arfa_aapa/security.py (canonical implementation in src/arfa_aapa/hardened.py), company domains and evidence engines in src/arfa_aapa/domains.py and evidence.py, web UI in src/arfa_aapa/web.py now uses the UnifiedAgent, CI in .github/workflows/ci.yml, security and maintenance guide in docs/SECURITY_AND_MAINTENANCE.md. Canonical source rule: src/ is canonical, experiments/ files are thin wrappers over src/, never edited for rules or templates. Earlier pushed versions were GitHub main, commit 5fc45a3, then c82b63d.
 - Demo presentation: an 8 slide deck was delivered separately. It is not inside this repository.
-- Tests: 13 of 13 pass, see Testing and evaluation.
+- Tests: 62 in total pass, core 30, sql-db spot 10, company domains 19, hardened 3, see Testing and evaluation.
 - Real data connection: none.
 - Production use: not ready.
 
@@ -46,10 +46,10 @@ Scale is a later decision, not a current feature.
 
 The flow is deliberately boring, because boring is trustworthy:
 
-1. The manager asks a question in Arabic, in the CLI or in the local web UI.
-2. The agent in `src/arfa_aapa/agent.py` routes the question to exactly one governed metric. It never invents a new metric, and it never writes free SQL from the user question.
-3. The metric in `src/arfa_aapa/metrics.py` builds a fixed SQL template with parameters only: branch and period.
-4. The validator in `src/arfa_aapa/security.py` checks the whole statement before execution: SELECT only, one statement only, allowed tables only, and no forbidden word anywhere in the statement, including WHERE, JOIN, ORDER BY, and GROUP BY.
+1. The manager asks a question in Arabic, in the CLI or in the local web UI. The web UI now uses the UnifiedAgent, so it can answer profit, warehouse, CRM, and employee questions, not only the 11 core metrics.
+2. The UnifiedAgent in `src/arfa_aapa/unified_agent.py` routes the question to exactly one registered tool in `tools.py`, in order: sensitive and injection guards, then evidence tools (profit, warehouse, employee), then the core agent, then company domains. It never invents a new metric, and it never writes free SQL from the user question.
+3. The tool builds a fixed SQL template with parameters only: branch and period.
+4. The validator in `src/arfa_aapa/security.py`, canonical implementation in `src/arfa_aapa/hardened.py`, checks the whole statement before execution: SELECT only, one statement only, allowed tables and allowed columns only, allowed functions only, and no forbidden word anywhere in the statement, including WHERE, JOIN, ORDER BY, and GROUP BY, case-insensitive, with no SELECT *, no UNION, and no subqueries.
 5. The database calculates the number. The model, or in this demo the agent code, only explains the result. It does not calculate.
 6. The answer returns in a fixed shape: value, period, definition, source tables, and a confirmed or abstained status.
 7. If no metric matches, if the question asks for sensitive data, or if there is not enough data, the answer is an explicit abstention with the reason and what is missing.
@@ -71,11 +71,12 @@ Counts:
 Tables:
 
 - `branches(id, name, city)`
-- `sales(id, branch_id, sale_date, vehicle_model, amount_egp, status)`
-- `service_job_cards(id, branch_id, opened_date, closed_date, status, service_type, labor_amount_egp, sold_hours, actual_hours)`
+- `sales(id, branch_id, sale_date, vehicle_model, amount_egp, status, salesperson_id)`
+- `service_job_cards(id, branch_id, opened_date, closed_date, status, service_type, labor_amount_egp, sold_hours, actual_hours, technician_id)`
 - `parts_sales(id, branch_id, sale_date, part_name, quantity, amount_egp)`
-- `parts_inventory(id, branch_id, part_name, stock_qty, reorder_level)`
+- `parts_inventory(id, branch_id, part_name, stock_qty, reorder_level, unit_price_egp)`
 - `surveys(id, branch_id, survey_date, score_1_5)`
+- Company demo tables, built by `scripts/seed_company.py` into `data/company.db`, gitignored: `crm_leads(id, branch_id, created_date, source, status)`, `accounting_invoices(id, branch_id, invoice_date, amount_egp, status)`, `accounting_costs(id, branch_id, cost_date, category, amount_egp)`, `cars_inventory(id, branch_id, vehicle_model, status, price_egp)`, `employees(id, name, role, branch_id)` with no salary, phone, national ID, or password column.
 
 Money is in EGP. Only invoiced sales count as sales revenue. Only invoiced or closed job cards count as service revenue. Cancelled sales are excluded.
 
@@ -333,9 +334,11 @@ Test files:
 - `tests/test_security.py`: 5 tests. Allows a clean SELECT, rejects a write, rejects an unknown table, rejects a forbidden column in WHERE even when the SELECT list is clean, and rejects stacked statements.
 - `tests/test_metrics.py`: 1 test. Service revenue is positive and total revenue covers service revenue over the full demo period.
 - `tests/test_agent.py`: 3 test methods, including a subtest for every golden question. Checks routing, confirmed answers with source and definition, and abstention for a sensitive question with no metric key.
-- `tests/test_web.py`: 4 tests. Health, confirmed ask, abstaining ask, and 4 KPI answers.
+- `tests/test_web.py`: 7 tests. Health, confirmed ask, abstaining ask, 4 KPI answers, plus unified web profit, warehouse, and unified suggested questions.
+- `tests/test_unified.py`: 14 tests. Core, CRM, profit with evidence and caveat, warehouse, employee, salary abstention, injection abstention with database survival, out-of-scope abstention, tools registry, skills files, hardened all-caps block, and canonical source checks.
+- Experiments: sql-db spot 10, company domains 19, hardened 3.
 
-Total: 13 tests, 13 pass.
+Total: 62 tests, 62 pass. CI in .github/workflows/ci.yml runs all suites on Python 3.11 and 3.12, after building demo, company, and spot databases.
 
 Golden questions, `evals/golden_questions.json`: 13 questions. 11 confirmed, 2 abstentions. The 2 abstentions are a salary question and a market forecast question. Both are correct abstentions, not failures.
 
@@ -360,7 +363,8 @@ All numbers above are synthetic demo numbers. They are not Vo Technology results
 ## 15. Security and privacy
 
 - Read-only first: the database connection uses SQLite read-only mode, and the validator allows SELECT only.
-- Allowed tables only: `branches`, `sales`, `service_job_cards`, `parts_sales`, `parts_inventory`, `surveys`.
+- Allowed tables and columns only: core `branches`, `sales`, `service_job_cards`, `parts_sales`, `parts_inventory`, `surveys`, plus company `crm_leads`, `accounting_invoices`, `accounting_costs`, `cars_inventory`, `employees` (id, name, role, branch_id only), plus spot tables in experiments. Allowed functions only, no SELECT *, no UNION, no subqueries, case-insensitive forbidden words.
+- Rejected templates are audited: `src/arfa_aapa/hardened.py` writes rejected template hashes and reasons to `rejected.log`, gitignored, never with a password or personal value.
 - Whole statement validation: a forbidden word or an unknown table anywhere in the statement is rejected, not only in the SELECT list. This was a deliberate design lesson: checking only the SELECT list would let an unlisted column leak through WHERE, ORDER BY, GROUP BY, or JOIN.
 - Forbidden words include write operations such as insert, update, delete, drop, alter, create, and truncate, and sensitive columns such as password, salary, phone, customer name, and national ID. The demo schema does not contain these columns at all.
 - No free SQL from the user: the user question never becomes SQL directly. It routes to a fixed template.
@@ -371,7 +375,7 @@ All numbers above are synthetic demo numbers. They are not Vo Technology results
 Demo limitations, stated plainly:
 
 - No login, no roles, and no multi-user access control. Do not expose this demo server to a network and do not connect it to real data in its current form.
-- No persistent audit log yet. Answers are not stored in this demo.
+- Audit log covers rejected templates only, not a full persistent answer audit log. Answers are not stored in this demo, except the in-memory trial log.
 - No input authentication on the local API. Local only is the only protection in this demo.
 
 ## 16. Review gates and roadmap
@@ -392,7 +396,7 @@ This project works step by step, with a review endpoint after each point. No pha
 
 ## 17. Troubleshooting
 
-- Database not found: run `python3 scripts/seed_demo.py` first. The web server fails fast with a clear message if `data/demo.db` is missing.
+- Database not found: run `python3 scripts/seed_demo.py` first, and `python3 scripts/seed_company.py` for company domains, profit, warehouse, and employee questions. The web server fails fast with a clear message if the database is missing.
 - Tests fail with a missing database: the test suite builds its own temporary database, so it does not depend on `data/demo.db`. The web tests use the default demo database, so seed it first if you run only the web tests after a clean clone.
 - Port already in use: start the web server with a different port, for example `PYTHONPATH=src python3 -m arfa_aapa.web --port 8765`, then open `http://127.0.0.1:8765`.
 - A question abstains: check the `missing` field. It means no governed metric matches, the question is sensitive, or there is not enough demo data in the period. Do not treat an abstention as a bug unless the question should match a documented metric, in which case add routing, a definition, a golden question, and a test, in that order.
@@ -401,6 +405,6 @@ This project works step by step, with a review endpoint after each point. No pha
 
 - It is not a Vo Technology product, and it is not connected to Vo Technology.
 - It is not a production system, and it has no login, roles, audit log, or network protection.
-- It is not a general AI assistant, and it does not answer questions outside its 11 governed metrics.
+- It is not a general AI assistant, and it does not answer questions outside its registered tools, 11 core metrics, 7 company domains, and evidence tools.
 - It does not predict the future, and it does not answer salary, personal, or market forecast questions.
 - Its numbers are synthetic test numbers, and they must never be quoted as real company results.

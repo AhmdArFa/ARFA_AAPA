@@ -94,3 +94,18 @@ class TestUnifiedAgent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestCanonicalSource(unittest.TestCase):
+    def test_security_is_hardened(self):
+        from arfa_aapa.security import validate_sql
+        with self.assertRaises(ValueError):
+            validate_sql("SELECT amount_egp FROM sales ATTACH 'x' AS y")
+        with self.assertRaises(ValueError):
+            validate_sql("SELECT * FROM sales")
+        validate_sql("SELECT branch_id, SUM(amount_egp) FROM sales WHERE status = 'invoiced' GROUP BY branch_id")
+    def test_experiments_wrapper_matches_src(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "security-hardened"))
+        import hardened as exp_hardened
+        from arfa_aapa.hardened import validate_hardened
+        self.assertIs(exp_hardened.validate_hardened, validate_hardened)

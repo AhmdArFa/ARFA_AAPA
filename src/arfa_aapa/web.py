@@ -11,8 +11,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .agent import ask
-from .data.database import get_connection
+from .unified_agent import UnifiedAgent
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = REPO_ROOT / "web"
@@ -26,6 +25,24 @@ KPI_QUESTIONS = [
 
 
 def answer_to_dict(answer) -> dict:
+    # UnifiedAnswer has tool/domain/evidence; core Answer has metric_key etc.
+    # Map both to the same JSON shape the web UI already renders.
+    if hasattr(answer, "tool"):
+        ev = answer.evidence or {}
+        return {
+            "question": answer.question,
+            "metric_key": answer.tool,
+            "metric_name": ev.get("metric_name") or answer.tool or answer.domain or "",
+            "text": answer.text,
+            "confirmed": answer.confirmed,
+            "period_label": ev.get("period") or "",
+            "definition": ev.get("definition") or "",
+            "source_tables": list(ev.get("source_tables") or []),
+            "missing": answer.missing,
+            "value": answer.value,
+            "unit": "",
+            "detail": "",
+        }
     return {
         "question": answer.question,
         "metric_key": answer.metric_key,
@@ -42,14 +59,27 @@ def answer_to_dict(answer) -> dict:
     }
 
 
+def _unified_agent() -> UnifiedAgent:
+    return UnifiedAgent()
+
+
 def kpi_answers() -> list[dict]:
-    return [answer_to_dict(ask(question)) for question in KPI_QUESTIONS]
+    agent = _unified_agent()
+    return [answer_to_dict(agent.ask(question)) for question in KPI_QUESTIONS]
 
 
 def suggested_questions() -> list[str]:
     golden_path = REPO_ROOT / "evals" / "golden_questions.json"
     items = json.loads(golden_path.read_text(encoding="utf-8"))
-    return [item["question"] for item in items if item["expected_metric"]]
+    questions = [item["question"] for item in items if item["expected_metric"]]
+    # Unified v2 questions, so the UI actually shows profit, warehouse, CRM, employee.
+    questions += [
+        "ما هي أرباح الشركة في كل فترة الداتا التجريبية؟",
+        "ما هو مخزون البطارية في المخازن؟",
+        "عدد العملاء المحتملين حسب المصدر في كل فترة الداتا التجريبية",
+        "كم كارت صيانة قفل فني صيانة 1؟",
+    ]
+    return questions
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -103,7 +133,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "question is required"}, status=400)
             return
         try:
-            self._send_json(answer_to_dict(ask(question)))
+            self._send_json(answer_to_dict(_unified_agent().ask(question)))
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
 
@@ -117,8 +147,13 @@ def main(argv=None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
     # Fail fast with a clear message if the demo database is missing.
-    connection = get_connection()
-    connection.close()
+    # UnifiedAgent prefers data/company.db, otherwise data/demo.db.
+    agent = _unified_agent()
+    if not agent.db_path.exists():
+        raise FileNotFoundError(
+            f"Demo database not found: {agent.db_path}. Run: python scripts/seed_demo.py and python scripts/seed_company.py"
+        )
+    # agent.db_path existence was already checked above; no extra connection needed.
     server = create_server(args.port)
     print(f"ARFA AAPA demo UI running at http://127.0.0.1:{args.port} (local only, demo data only)")
     print("Press Ctrl+C to stop.")

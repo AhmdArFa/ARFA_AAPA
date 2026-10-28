@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build demo databases
+        run: |
+          python scripts/seed_demo.py
+          python scripts/seed_company.py
+          python experiments/company-domains/seed_company.py
+          python experiments/sql-db-spot/seed.py
+      - name: Core tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -v
+      - name: Experiments tests
+        run: |
+          python -m unittest discover -s experiments/sql-db-spot/tests -v
+          python -m unittest discover -s experiments/company-domains/tests -v
+          python -m unittest discover -s experiments/security-hardened/tests -v
+      - name: Unified agent demo
+        run: PYTHONPATH=src python -m arfa_aapa.unified_agent
